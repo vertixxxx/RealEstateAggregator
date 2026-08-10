@@ -29,4 +29,4 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          python real-estate-app/updater.py
+          python updater.py
