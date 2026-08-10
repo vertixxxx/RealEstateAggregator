@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Listing {
+  id                Int       @id @default(autoincrement())
+  externalId        String    @unique @map("external_id")
+  title             String
+  price             Float?
+  currency          String?
+  surfaceSqm        Float?    @map("surface_sqm")
+  pricePerSqm       Float?    @map("price_per_sqm")
+  city              String?
+  district          String?
+  url               String?
+  isBusiness        Boolean?  @map("is_business")
+  createdAt         DateTime? @map("created_at")
+  firstSeenAt       DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at")
+
+  priceHistory      PriceHistory[]
+
+  @@map("listings")
+}
+
+model PriceHistory {
+  id          Int      @id @default(autoincrement())
+  listingId   Int      @map("listing_id")
+  oldPrice    Float?   @map("old_price")
+  newPrice    Float?   @map("new_price")
+  changedAt   DateTime @default(now()) @map("changed_at")
+
+  listing     Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@map("price_history")
+}
