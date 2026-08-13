@@ -1,25 +1,29 @@
 import { prisma } from '@/lib/prisma';
-import { Listing } from '@prisma/client';
+import { Listing, Prisma } from '@prisma/client';
 import Link from 'next/link';
 
 export const revalidate = 0;
 
 export default async function HomePage(props: {
-  searchParams: Promise<{ type?: string; page?: string }>;
+  searchParams: Promise<{ type?: string; page?: string; city?: string }>;
 }) {
   const searchParams = await props.searchParams;
-  
+
   // URL Parameters setup
   const currentType = searchParams?.type || 'sale';
   const currentPage = Number(searchParams?.page) || 1;
+  const currentCity = searchParams?.city;
   const pageSize = 50;
 
   // Filter based on price
   const priceFilter = currentType === 'rent' ? { lt: 5000 } : { gte: 5000 };
-  const whereClause = { price: priceFilter };
+  const whereClause: Prisma.ListingWhereInput = { price: priceFilter };
+  if (currentCity) {
+    whereClause.city = currentCity;
+  }
 
-  // Fetch listings and total count in parallel for maximum speed
-  const [listings, totalCount] = await Promise.all([
+  // Fetch listings, total count, and distinct cities in parallel for maximum speed
+  const [listings, totalCount, distinctCities] = await Promise.all([
     prisma.listing.findMany({
       where: whereClause,
       orderBy: { firstSeenAt: 'desc' },
@@ -28,10 +32,26 @@ export default async function HomePage(props: {
     }),
     prisma.listing.count({
       where: whereClause,
-    })
+    }),
+    prisma.listing.findMany({
+      select: { city: true },
+      distinct: ['city'],
+      where: {
+        city: {
+          gt: '', // Filter out null and empty strings
+        },
+      },
+      orderBy: {
+        city: 'asc',
+      },
+    }),
   ]);
 
+  const cities = distinctCities.map((c) => c.city!);
+
   const totalPages = Math.ceil(totalCount / pageSize);
+
+  const cityParam = currentCity ? `&city=${currentCity}` : '';
 
   return (
     <main className="min-h-screen bg-gray-50 p-8">
@@ -39,18 +59,18 @@ export default async function HomePage(props: {
         <header className="mb-8">
           <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                ImoPont
-              </h1>
+              <h1 className="text-3xl font-bold text-gray-900">ImoPont</h1>
               <p className="text-gray-600 mt-1">
-                Showing {listings.length} of {totalCount} {currentType === 'rent' ? 'rentals' : 'properties for sale'}.
+                Showing {listings.length} of {totalCount}{' '}
+                {currentType === 'rent' ? 'rentals' : 'properties for sale'}
+                {currentCity ? ` in ${currentCity}` : ''}.
               </p>
             </div>
 
             {/* Navigation Tabs - Switching tabs resets to page 1 */}
             <div className="flex bg-gray-200 p-1 rounded-lg">
               <Link
-                href="/?type=sale"
+                href={`/?type=sale${cityParam}`}
                 className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
                   currentType === 'sale'
                     ? 'bg-white text-gray-900 shadow-sm'
@@ -60,7 +80,7 @@ export default async function HomePage(props: {
                 For Sale
               </Link>
               <Link
-                href="/?type=rent"
+                href={`/?type=rent${cityParam}`}
                 className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
                   currentType === 'rent'
                     ? 'bg-white text-gray-900 shadow-sm'
@@ -72,6 +92,33 @@ export default async function HomePage(props: {
             </div>
           </div>
         </header>
+
+        {/* City Filter Buttons */}
+        <div className="flex flex-wrap items-center gap-2 mb-8">
+          <Link
+            href={`/?type=${currentType}`}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              !currentCity
+                ? 'bg-gray-900 text-white shadow-sm'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100'
+            }`}
+          >
+            All Cities
+          </Link>
+          {cities.map((city) => (
+            <Link
+              key={city}
+              href={`/?type=${currentType}&city=${city}`}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                currentCity === city
+                  ? 'bg-gray-900 text-white shadow-sm'
+                  : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100'
+              }`}
+            >
+              {city}
+            </Link>
+          ))}
+        </div>
 
         {listings.length === 0 ? (
           <div className="p-12 text-center bg-white rounded-lg border border-gray-200">
@@ -101,13 +148,19 @@ export default async function HomePage(props: {
                         )}
                       </div>
                     </div>
-                    
-                    <h2 className="font-semibold text-gray-800 line-clamp-2 mb-2" title={item.title}>
+
+                    <h2
+                      className="font-semibold text-gray-800 line-clamp-2 mb-2"
+                      title={item.title}
+                    >
                       {item.title}
                     </h2>
-                    
+
                     <div className="text-sm text-gray-500 mb-4 flex flex-col gap-1">
-                      <p>📍 {item.district ? item.district : 'Location on request'}</p>
+                      <p>
+                        📍{' '}
+                        {item.district ? item.district : 'Location on request'}
+                      </p>
                       {item.surfaceSqm && <p>📐 {item.surfaceSqm} m²</p>}
                     </div>
                   </div>
@@ -131,7 +184,7 @@ export default async function HomePage(props: {
               <div className="flex items-center justify-center gap-4 pt-6 border-t border-gray-200">
                 {currentPage > 1 ? (
                   <Link
-                    href={`/?type=${currentType}&page=${currentPage - 1}`}
+                    href={`/?type=${currentType}&page=${currentPage - 1}${cityParam}`}
                     className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
                   >
                     ← Previous
@@ -148,7 +201,7 @@ export default async function HomePage(props: {
 
                 {currentPage < totalPages ? (
                   <Link
-                    href={`/?type=${currentType}&page=${currentPage + 1}`}
+                    href={`/?type=${currentType}&page=${currentPage + 1}${cityParam}`}
                     className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
                   >
                     Next →
