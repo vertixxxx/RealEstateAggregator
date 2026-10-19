@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 from curl_cffi import requests
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+from district_extractor import extract_district_from_title
 
 # Set up clean logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -145,6 +146,10 @@ class OLXScraper:
                             "location_district": item.get("location", {}).get("district", {}).get("name"),
                             "is_business": item.get("user", {}).get("company_name") is not None,
                         }
+
+                        if not location_district or location_district.strip() == "":
+                            location_district = extract_district_from_title(title=title, city=city)
+                            
                         normalized_listings.append(listing)
 
                     return normalized_listings

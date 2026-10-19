@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
 import Link from 'next/link';
+import FilterBar from '@/components/FilterBar';
 
 export const revalidate = 0;
 
@@ -8,24 +9,37 @@ type ListingWithHistory = Prisma.ListingGetPayload<{
   include: { priceHistory: true };
 }>;
 
+const PRIORITY_CITIES = ['Cluj-Napoca', 'Brasov', 'Bucuresti'];
+
 export default async function HomePage(props: {
-  searchParams: Promise<{ type?: string; page?: string; city?: string; deals?: string }>;
+  searchParams: Promise<{
+    type?: string;
+    page?: string;
+    city?: string;
+    district?: string;
+    deals?: string;
+  }>;
 }) {
   const searchParams = await props.searchParams;
 
   // URL Parameters setup
   const currentType = searchParams?.type || 'sale';
   const currentPage = Number(searchParams?.page) || 1;
-  const currentCity = searchParams?.city;
+  const currentCity = searchParams?.city || '';
+  const currentDistrict = searchParams?.district || '';
   const currentDeals = searchParams?.deals === 'true';
   const pageSize = 50;
 
-  // Filter based on price
+  // Filter based on price (Sale vs Rent)
   const priceFilter = currentType === 'rent' ? { lt: 5000 } : { gte: 5000 };
   const whereClause: Prisma.ListingWhereInput = { price: priceFilter };
-  
+
   if (currentCity) {
     whereClause.city = currentCity;
+  }
+
+  if (currentCity && currentDistrict) {
+    whereClause.district = currentDistrict;
   }
 
   if (currentDeals) {
@@ -34,42 +48,83 @@ export default async function HomePage(props: {
     };
   }
 
-  // Fetch listings, total count, and distinct cities in parallel for maximum speed
-  const [listings, totalCount, distinctCities] = await Promise.all([
+  // Fetch listings, total count, city counts, and district counts in parallel
+  const [listings, totalCount, cityGroups, districtGroups] = await Promise.all([
     prisma.listing.findMany({
       where: whereClause,
       orderBy: { firstSeenAt: 'desc' },
       take: pageSize,
-      skip: (currentPage - 1) * pageSize, // Skip the records from previous pages
+      skip: (currentPage - 1) * pageSize,
       include: {
         priceHistory: {
           orderBy: { changedAt: 'desc' },
-          take: 1, // Only get the most recent price history record
+          take: 1,
         },
       },
     }),
     prisma.listing.count({
       where: whereClause,
     }),
-    prisma.listing.findMany({
-      select: { city: true },
-      distinct: ['city'],
+    // Group cities by count for the current type (sale/rent)
+    prisma.listing.groupBy({
+      by: ['city'],
       where: {
-        city: {
-          gt: '', // Filter out null and empty strings
-        },
+        price: priceFilter,
+        city: { gt: '' },
       },
-      orderBy: {
-        city: 'asc',
-      },
+      _count: { city: true },
+      orderBy: { _count: { city: 'desc' } },
     }),
+    // Group neighborhoods if a city is selected
+    currentCity
+      ? prisma.listing.groupBy({
+          by: ['district'],
+          where: {
+            price: priceFilter,
+            city: currentCity,
+            district: { gt: '' },
+          },
+          _count: { district: true },
+          orderBy: { _count: { district: 'desc' } },
+        })
+      : Promise.resolve([]),
   ]);
 
-  const cities = distinctCities.map((c) => c.city!);
+  // Separate main cities (Cluj, Brasov, Bucuresti) from other cities
+  const mainCities = PRIORITY_CITIES.map((name) => {
+    const match = cityGroups.find(
+      (g) => g.city?.toLowerCase() === name.toLowerCase()
+    );
+    return {
+      name: match?.city || name,
+      count: match ? match._count.city : 0,
+    };
+  }).filter((c) => c.count > 0);
+
+  // Filter out cities with fewer than 3 listings so the dropdown stays clean
+  const otherCities = cityGroups
+    .filter(
+      (g) =>
+        g.city &&
+        !PRIORITY_CITIES.some((p) => p.toLowerCase() === g.city!.toLowerCase()) &&
+        g._count.city >= 3
+    )
+    .map((g) => ({
+      name: g.city!,
+      count: g._count.city,
+    }));
+
+  const districts = districtGroups
+    .filter((d) => d.district)
+    .map((d) => ({
+      name: d.district!,
+      count: d._count.district,
+    }));
 
   const totalPages = Math.ceil(totalCount / pageSize);
 
-  const cityParam = currentCity ? `&city=${currentCity}` : '';
+  const cityParam = currentCity ? `&city=${encodeURIComponent(currentCity)}` : '';
+  const districtParam = currentDistrict ? `&district=${encodeURIComponent(currentDistrict)}` : '';
   const dealParam = currentDeals ? `&deals=true` : '';
 
   return (
@@ -82,14 +137,15 @@ export default async function HomePage(props: {
               <p className="text-gray-600 mt-1">
                 Showing {listings.length} of {totalCount}{' '}
                 {currentType === 'rent' ? 'rentals' : 'properties for sale'}
-                {currentCity ? ` in ${currentCity}` : ''}.
+                {currentCity ? ` in ${currentCity}` : ''}
+                {currentDistrict ? ` (${currentDistrict})` : ''}.
               </p>
             </div>
 
             {/* Navigation Tabs - Switching tabs resets to page 1 */}
             <div className="flex bg-gray-200 p-1 rounded-lg">
               <Link
-                href={`/?type=sale${cityParam}${dealParam}`}
+                href={`/?type=sale${cityParam}${districtParam}${dealParam}`}
                 className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
                   currentType === 'sale'
                     ? 'bg-white text-gray-900 shadow-sm'
@@ -99,7 +155,7 @@ export default async function HomePage(props: {
                 For Sale
               </Link>
               <Link
-                href={`/?type=rent${cityParam}${dealParam}`}
+                href={`/?type=rent${cityParam}${districtParam}${dealParam}`}
                 className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
                   currentType === 'rent'
                     ? 'bg-white text-gray-900 shadow-sm'
@@ -112,47 +168,15 @@ export default async function HomePage(props: {
           </div>
         </header>
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2 mb-8">
-          {/* Deals Filter Button */}
-          <Link
-            href={`/?type=${currentType}${cityParam}${currentDeals ? '' : '&deals=true'}`}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1 ${
-              currentDeals
-                ? 'bg-red-600 text-white shadow-sm border border-red-600'
-                : 'bg-white text-red-600 border border-red-200 hover:bg-red-50'
-            }`}
-          >
-            🔥 Deals Only
-          </Link>
-          
-          <div className="w-px h-6 bg-gray-300 mx-1"></div> {/* Divider */}
-
-          {/* City Filter Buttons */}
-          <Link
-            href={`/?type=${currentType}${dealParam}`}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              !currentCity
-                ? 'bg-gray-900 text-white shadow-sm'
-                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100'
-            }`}
-          >
-            All Cities
-          </Link>
-          {cities.map((city) => (
-            <Link
-              key={city}
-              href={`/?type=${currentType}&city=${city}${dealParam}`}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                currentCity === city
-                  ? 'bg-gray-900 text-white shadow-sm'
-                  : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100'
-              }`}
-            >
-              {city}
-            </Link>
-          ))}
-        </div>
+        {/* Cascading City & Neighborhood Filter Bar */}
+        <FilterBar
+          mainCities={mainCities}
+          otherCities={otherCities}
+          districts={districts}
+          currentCity={currentCity}
+          currentDistrict={currentDistrict}
+          currentDeals={currentDeals}
+        />
 
         {listings.length === 0 ? (
           <div className="p-12 text-center bg-white rounded-lg border border-gray-200">
@@ -181,7 +205,7 @@ export default async function HomePage(props: {
                     <div>
                       {/* Thumbnail Image */}
                       <div className="h-48 w-full bg-gray-100 relative overflow-hidden">
-                        {item.imageUrl ? (
+                        {item.imageUrl && item.imageUrl !== 'NO_IMAGE' ? (
                           <img
                             src={item.imageUrl}
                             alt={item.title}
@@ -259,13 +283,16 @@ export default async function HomePage(props: {
               <div className="flex items-center justify-center gap-4 pt-6 border-t border-gray-200">
                 {currentPage > 1 ? (
                   <Link
-                    href={`/?type=${currentType}&page=${currentPage - 1}${cityParam}${dealParam}`}
+                    href={`/?type=${currentType}&page=${currentPage - 1}${cityParam}${districtParam}${dealParam}`}
                     className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
                   >
                     ← Previous
                   </Link>
                 ) : (
-                  <button disabled className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-400 bg-gray-50 cursor-not-allowed">
+                  <button
+                    disabled
+                    className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-400 bg-gray-50 cursor-not-allowed"
+                  >
                     ← Previous
                   </button>
                 )}
@@ -276,13 +303,16 @@ export default async function HomePage(props: {
 
                 {currentPage < totalPages ? (
                   <Link
-                    href={`/?type=${currentType}&page=${currentPage + 1}${cityParam}${dealParam}`}
+                    href={`/?type=${currentType}&page=${currentPage + 1}${cityParam}${districtParam}${dealParam}`}
                     className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
                   >
                     Next →
                   </Link>
                 ) : (
-                  <button disabled className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-400 bg-gray-50 cursor-not-allowed">
+                  <button
+                    disabled
+                    className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-400 bg-gray-50 cursor-not-allowed"
+                  >
                     Next →
                   </button>
                 )}
