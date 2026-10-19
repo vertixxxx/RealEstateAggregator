@@ -80,6 +80,23 @@ class OLXScraper:
                     pass
         return None
 
+    def _extract_image(self, item: Dict) -> Optional[str]:
+        # 1. Standard OLX photos array
+        photos = item.get("photos", [])
+        if photos and isinstance(photos, list):
+            first = photos[0]
+            if isinstance(first, dict):
+                raw_link = first.get("link") or first.get("url")
+                if raw_link:
+                    return str(raw_link).replace("{width}", "800").replace("{height}", "600")
+
+        # 2. Fallback for syndicated/Storia listings with a thumbnail key
+        thumbnail = item.get("thumbnail") or item.get("preview_url")
+        if thumbnail and isinstance(thumbnail, str):
+            return thumbnail.replace("{width}", "800").replace("{height}", "600")
+
+        return None
+
     def fetch_listings(self, city_name: str, category_keyword: str, limit: int = 40, offset: int = 0) -> List[Dict]:
         ids = self._resolve_live_ids(city_name, category_keyword)
         
@@ -118,6 +135,7 @@ class OLXScraper:
                             "external_id": item.get("id"),
                             "title": item.get("title", "").strip(),
                             "url": item.get("url"),
+                            "image_url": self._extract_image(item),
                             "created_at": item.get("created_time"),
                             "price": price,
                             "currency": price_info["currency"],
@@ -164,13 +182,14 @@ def sync_updates_to_postgres(listings):
     """)
 
     # Query 2: UPSERT listing metadata and update last_seen_at
+    # Query 2: UPSERT listing metadata and update last_seen_at
     upsert_query = text("""
         INSERT INTO listings (
-            external_id, title, price, currency, surface_sqm, price_per_sqm, city, district, url, is_business, created_at, first_seen_at, last_seen_at
+            external_id, title, price, currency, surface_sqm, price_per_sqm, city, district, url, image_url, is_business, created_at, first_seen_at, last_seen_at
         ) VALUES (
-            :external_id, :title, :price, :currency, :surface_sqm, :price_per_sqm, :city, :location_district, :url, :is_business, 
+            :external_id, :title, :price, :currency, :surface_sqm, :price_per_sqm, :city, :location_district, :url, :image_url, :is_business, 
             CASE 
-                WHEN :created_at IS NOT NULL AND :created_at != '' THEN CAST(:created_at AS TIMESTAMPTZ)
+                WHEN CAST(:created_at AS TEXT) IS NOT NULL AND CAST(:created_at AS TEXT) != '' THEN CAST(:created_at AS TIMESTAMPTZ)
                 ELSE NOW()
             END,
             NOW(), 
@@ -180,6 +199,7 @@ def sync_updates_to_postgres(listings):
             price = EXCLUDED.price,
             surface_sqm = COALESCE(listings.surface_sqm, EXCLUDED.surface_sqm),
             price_per_sqm = COALESCE(listings.price_per_sqm, EXCLUDED.price_per_sqm),
+            image_url = COALESCE(EXCLUDED.image_url, listings.image_url),
             last_seen_at = NOW()
         RETURNING id, external_id;
     """)
@@ -216,6 +236,7 @@ def sync_updates_to_postgres(listings):
                     "city": item.get("city") or "Romania",
                     "location_district": item.get("location_district"),
                     "url": item.get("url"),
+                    "image_url": item.get("image_url"),
                     "is_business": bool(item.get("is_business")),
                     "created_at": str(item.get("created_at")) if item.get("created_at") else None,
                 }

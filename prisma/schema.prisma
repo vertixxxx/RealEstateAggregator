@@ -17,6 +17,7 @@ model Listing {
   city              String?
   district          String?
   url               String?
+  imageUrl          String?   @map("image_url")
   isBusiness        Boolean?  @map("is_business")
   createdAt         DateTime? @map("created_at")
   firstSeenAt       DateTime  @default(now()) @map("first_seen_at")
