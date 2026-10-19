@@ -205,7 +205,7 @@ export default async function HomePage(props: {
                     <div>
                       {/* Thumbnail Image */}
                       <div className="h-48 w-full bg-gray-100 relative overflow-hidden">
-                        {item.imageUrl && item.imageUrl !== 'NO_IMAGE' ? (
+                        {item.imageUrl && item.imageUrl !== 'NO_IMAGE' && item.imageUrl !== 'DEAD_LINK' ? (
                           <img
                             src={item.imageUrl}
                             alt={item.title}

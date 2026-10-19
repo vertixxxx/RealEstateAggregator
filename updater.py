@@ -82,7 +82,7 @@ class OLXScraper:
         return None
 
     def _extract_image(self, item: Dict) -> Optional[str]:
-        # 1. Standard OLX photos array
+        # 1. Check standard OLX photos list
         photos = item.get("photos", [])
         if photos and isinstance(photos, list):
             first = photos[0]
@@ -91,10 +91,20 @@ class OLXScraper:
                 if raw_link:
                     return str(raw_link).replace("{width}", "800").replace("{height}", "600")
 
-        # 2. Fallback for syndicated/Storia listings with a thumbnail key
-        thumbnail = item.get("thumbnail") or item.get("preview_url")
-        if thumbnail and isinstance(thumbnail, str):
-            return thumbnail.replace("{width}", "800").replace("{height}", "600")
+        # 2. Fallback: If OLX/Storia leaves photos[] empty, grab og:image from the listing URL
+        listing_url = item.get("url")
+        if listing_url:
+            try:
+                res = self.session.get(listing_url, timeout=5, allow_redirects=True)
+                if res.status_code == 200:
+                    cdn_match = re.search(
+                        r'(https://[a-z0-9.-]+apollo\.olxcdn\.com/v1/files/[^"\'\s>]+)',
+                        res.text,
+                    )
+                    if cdn_match:
+                        return cdn_match.group(1).replace("{width}", "800").replace("{height}", "600")
+            except Exception:
+                pass
 
         return None
 
@@ -132,9 +142,19 @@ class OLXScraper:
                         if price and surface and surface > 0:
                             price_per_sqm = round(price / surface, 2)
                         
+                        # 1. Extract values into variables first
+                        title = item.get("title", "").strip()
+                        city = item.get("location", {}).get("city", {}).get("name", city_name)
+                        location_district = item.get("location", {}).get("district", {}).get("name")
+
+                        # 2. Apply title fallback if OLX didn't provide a district
+                        if not location_district or location_district.strip() == "":
+                            location_district = extract_district_from_title(title=title, city=city)
+
+                        # 3. Construct the listing dictionary using the resolved variables
                         listing = {
                             "external_id": item.get("id"),
-                            "title": item.get("title", "").strip(),
+                            "title": title,
                             "url": item.get("url"),
                             "image_url": self._extract_image(item),
                             "created_at": item.get("created_time"),
@@ -142,14 +162,11 @@ class OLXScraper:
                             "currency": price_info["currency"],
                             "surface_sqm": surface,
                             "price_per_sqm": price_per_sqm,
-                            "city": item.get("location", {}).get("city", {}).get("name", city_name),
-                            "location_district": item.get("location", {}).get("district", {}).get("name"),
+                            "city": city,
+                            "location_district": location_district,
                             "is_business": item.get("user", {}).get("company_name") is not None,
                         }
 
-                        if not location_district or location_district.strip() == "":
-                            location_district = extract_district_from_title(title=title, city=city)
-                            
                         normalized_listings.append(listing)
 
                     return normalized_listings
