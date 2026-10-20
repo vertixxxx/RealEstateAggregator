@@ -164,6 +164,21 @@ export default async function HomePage(props: {
       count: d._count.district,
     }));
 
+  const mapStats = marketBenchmarks
+    .filter(
+      (b) =>
+        b.city &&
+        b.district &&
+        (!currentCity ||
+          b.city.localeCompare(currentCity, undefined, { sensitivity: "base" }) === 0)
+    )
+    .map((b) => ({
+      city: b.city!,
+      district: b.district!,
+      count: b._count.id,
+      avgSqm: b._avg.pricePerSqm ? Number(b._avg.pricePerSqm) : null,
+    }));
+
   const totalPages = Math.ceil(totalCount / pageSize);
 
   const cityParam = currentCity ? `&city=${encodeURIComponent(currentCity)}` : '';
@@ -235,6 +250,7 @@ export default async function HomePage(props: {
           currentCity={currentCity}
           currentDistrict={currentDistrict}
           currentDeals={currentDeals}
+          mapStats={mapStats}
         />
 
         {listings.length === 0 ? (
