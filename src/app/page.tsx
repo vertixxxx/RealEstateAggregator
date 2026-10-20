@@ -18,6 +18,7 @@ export default async function HomePage(props: {
     city?: string;
     district?: string;
     deals?: string;
+    sort?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
@@ -28,6 +29,7 @@ export default async function HomePage(props: {
   const currentCity = searchParams?.city || '';
   const currentDistrict = searchParams?.district || '';
   const currentDeals = searchParams?.deals === 'true';
+  const currentSort = searchParams?.sort || 'newest';
   const pageSize = 50;
 
   // Filter based on price (Sale vs Rent)
@@ -52,12 +54,25 @@ export default async function HomePage(props: {
     };
   }
 
+  // Dynamic sorting configuration
+  let orderByClause:
+    | Prisma.ListingOrderByWithRelationInput
+    | Prisma.ListingOrderByWithRelationInput[] = { firstSeenAt: 'desc' };
+
+  if (currentSort === 'price_asc') {
+    orderByClause = [{ price: 'asc' }, { firstSeenAt: 'desc' }];
+  } else if (currentSort === 'price_desc') {
+    orderByClause = [{ price: 'desc' }, { firstSeenAt: 'desc' }];
+  } else if (currentSort === 'sqm_asc') {
+    orderByClause = [{ pricePerSqm: 'asc' }, { firstSeenAt: 'desc' }];
+  }
+
   // Fetch listings, total count, city stats, district dropdowns, and market averages in parallel
   const [listings, totalCount, cityGroups, districtGroups, marketBenchmarks] =
     await Promise.all([
       prisma.listing.findMany({
         where: whereClause,
-        orderBy: { firstSeenAt: 'desc' },
+        orderBy: orderByClause,
         take: pageSize,
         skip: (currentPage - 1) * pageSize,
         include: {
@@ -164,13 +179,14 @@ export default async function HomePage(props: {
       count: d._count.district,
     }));
 
+  // Map stats with accent-insensitive city comparison (matches București with Bucuresti)
   const mapStats = marketBenchmarks
     .filter(
       (b) =>
         b.city &&
         b.district &&
         (!currentCity ||
-          b.city.localeCompare(currentCity, undefined, { sensitivity: "base" }) === 0)
+          b.city.localeCompare(currentCity, undefined, { sensitivity: 'base' }) === 0)
     )
     .map((b) => ({
       city: b.city!,
@@ -186,6 +202,7 @@ export default async function HomePage(props: {
     ? `&district=${encodeURIComponent(currentDistrict)}`
     : '';
   const dealParam = currentDeals ? `&deals=true` : '';
+  const sortParam = currentSort && currentSort !== 'newest' ? `&sort=${currentSort}` : '';
 
   // Active area average for header banner
   const activeBenchmarkAvg =
@@ -219,7 +236,7 @@ export default async function HomePage(props: {
             {/* Navigation Tabs */}
             <div className="flex bg-gray-200 p-1 rounded-lg">
               <Link
-                href={`/?type=sale${cityParam}${districtParam}${dealParam}`}
+                href={`/?type=sale${cityParam}${districtParam}${dealParam}${sortParam}`}
                 className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
                   currentType === 'sale'
                     ? 'bg-white text-gray-900 shadow-sm'
@@ -229,7 +246,7 @@ export default async function HomePage(props: {
                 For Sale
               </Link>
               <Link
-                href={`/?type=rent${cityParam}${districtParam}${dealParam}`}
+                href={`/?type=rent${cityParam}${districtParam}${dealParam}${sortParam}`}
                 className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
                   currentType === 'rent'
                     ? 'bg-white text-gray-900 shadow-sm'
@@ -242,7 +259,7 @@ export default async function HomePage(props: {
           </div>
         </header>
 
-        {/* Cascading City & Neighborhood Filter Bar */}
+        {/* Cascading Filter Bar + Map View */}
         <FilterBar
           mainCities={mainCities}
           otherCities={otherCities}
@@ -250,6 +267,7 @@ export default async function HomePage(props: {
           currentCity={currentCity}
           currentDistrict={currentDistrict}
           currentDeals={currentDeals}
+          currentSort={currentSort}
           mapStats={mapStats}
         />
 
@@ -269,7 +287,7 @@ export default async function HomePage(props: {
                   Number(latestHistory.oldPrice ?? 0) >
                     Number(latestHistory.newPrice ?? 0);
 
-                // Market Value Calculation (Compare listing €/m² against Neighborhood or City average)
+                // Market Value Calculation
                 const itemSqmPrice = item.pricePerSqm
                   ? Number(item.pricePerSqm)
                   : null;
@@ -295,7 +313,7 @@ export default async function HomePage(props: {
                   );
                 }
 
-                // Flag as Great Value if at least 15% below market average (and under 65% to ignore broken 1€/m² entries)
+                // Flag as Great Value if 15% - 65% below area benchmark
                 const isUnderpriced =
                   belowMarketPercent >= 15 && belowMarketPercent <= 65;
 
@@ -424,7 +442,7 @@ export default async function HomePage(props: {
                   <Link
                     href={`/?type=${currentType}&page=${
                       currentPage - 1
-                    }${cityParam}${districtParam}${dealParam}`}
+                    }${cityParam}${districtParam}${dealParam}${sortParam}`}
                     className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
                   >
                     ← Previous
@@ -446,7 +464,7 @@ export default async function HomePage(props: {
                   <Link
                     href={`/?type=${currentType}&page=${
                       currentPage + 1
-                    }${cityParam}${districtParam}${dealParam}`}
+                    }${cityParam}${districtParam}${dealParam}${sortParam}`}
                     className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
                   >
                     Next →

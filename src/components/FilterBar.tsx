@@ -26,6 +26,7 @@ interface FilterBarProps {
   currentCity: string;
   currentDistrict: string;
   currentDeals: boolean;
+  currentSort?: string; // New
   mapStats: DistrictMapStat[];
 }
 
@@ -36,6 +37,7 @@ export default function FilterBar({
   currentCity,
   currentDistrict,
   currentDeals,
+  currentSort = "newest",
   mapStats,
 }: FilterBarProps) {
   const router = useRouter();
@@ -47,7 +49,7 @@ export default function FilterBar({
     params.delete("page");
 
     Object.entries(updates).forEach(([key, value]) => {
-      if (value && value !== "all") {
+      if (value && value !== "all" && value !== "newest") {
         params.set(key, value);
       } else {
         params.delete(key);
@@ -61,7 +63,7 @@ export default function FilterBar({
     <>
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-wrap gap-4 items-end">
         {/* 1. City Dropdown */}
-        <div className="flex flex-col flex-1 min-w-[220px]">
+        <div className="flex flex-col flex-1 min-w-[200px]">
           <label className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">
             City
           </label>
@@ -110,7 +112,7 @@ export default function FilterBar({
         </div>
 
         {/* 2. Neighborhood Dropdown */}
-        <div className="flex flex-col flex-1 min-w-[220px]">
+        <div className="flex flex-col flex-1 min-w-[200px]">
           <label className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">
             Neighborhood
           </label>
@@ -139,7 +141,32 @@ export default function FilterBar({
           </select>
         </div>
 
-        {/* 3. Deals Only Button */}
+        {/* 3. Sort Selector */}
+        <div className="flex flex-col min-w-[180px]">
+          <label className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">
+            Sort By
+          </label>
+          <select
+            value={currentSort}
+            onChange={(e) => updateFilters({ sort: e.target.value })}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"
+          >
+            <option value="newest" className="text-gray-900 bg-white font-normal">
+              ⏱️ Latest Added
+            </option>
+            <option value="price_asc" className="text-gray-900 bg-white font-normal">
+              💰 Price: Low to High
+            </option>
+            <option value="price_desc" className="text-gray-900 bg-white font-normal">
+              💰 Price: High to Low
+            </option>
+            <option value="sqm_asc" className="text-gray-900 bg-white font-normal">
+              📐 €/m²: Low to High
+            </option>
+          </select>
+        </div>
+
+        {/* 4. Deals Only Toggle */}
         <button
           type="button"
           onClick={() =>
@@ -154,7 +181,7 @@ export default function FilterBar({
           🔥 Deals Only
         </button>
 
-        {/* 4. Toggle Map Button */}
+        {/* 5. Map View Toggle */}
         <button
           type="button"
           onClick={() => setShowMap(!showMap)}
