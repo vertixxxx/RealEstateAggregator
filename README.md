@@ -36,7 +36,7 @@ Beyond displaying property listings, ImoPont tracks historical price changes ove
 * **Data Normalization:** Custom regex & Unicode normalization (`unicodedata`) for Romanian diacritics
 
 ### Infrastructure & DevOps
-* **Database:** Cloud-hosted PostgreSQL
+* **Database:** NeonDB
 * **Automation / Scheduling:** GitHub Actions (Scheduled cron workflows + manual `workflow_dispatch`)
 * **Hosting:** Vercel
 
